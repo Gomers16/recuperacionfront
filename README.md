@@ -1,37 +1,116 @@
-Frontend - Sistema de Gestión de Consolas
-Este es el repositorio del frontend para el Sistema de Gestión de Consolas. Es la interfaz de usuario que interactúa con el backend.
+🖥️ Frontend - Sistema de Gestión de Consolas
+Este es el repositorio del frontend para el Sistema de Gestión de Consolas. Es la interfaz de usuario que interactúa con el backend desarrollado en AdonisJS.
 
-Tecnologías Utilizadas
-Vue.js: Framework para la interfaz de usuario.
-TypeScript: Lenguaje de programación.
-Vite: Herramienta de construcción rápida.
-Requisitos Previos
-Node.js (v18+ recomendado)
-npm
-Configuración y Ejecución
-Sigue estos pasos para poner el frontend en marcha:
+🚀 Tecnologías Utilizadas
+Vue.js 3: Framework progresivo para construir interfaces de usuario.
 
-Clonar el Repositorio:
+TypeScript: Lenguaje de programación tipado.
 
-Bash
+Vite: Herramienta de construcción moderna y rápida para Vue.
 
-git clone <URL_DEL_REPOSITORIO_FRONTEND> frontend-consolas
-cd frontend-consolas
-Instalar Dependencias:
+Vue Router: Manejo de rutas para aplicaciones Vue.
 
-Bash
+Vuetify: Framework de componentes UI basado en Material Design para Vue 3.
 
-npm install
-Configurar la URL de la API:
-Abre el archivo src/services/ConsoleService.ts y asegúrate de que la API_URL apunte a tu backend:
+✅ Requisitos Previos
+Antes de comenzar, asegúrate de tener instalado:
 
-TypeScript
+Node.js (v18 o superior recomendado)
+👉 https://nodejs.org
+
+npm (v9 o superior, usualmente incluido con Node.js)
+
+⚙️ Instalación y Configuración
+
+1️⃣ Clonar el Repositorio
+bash
+-git clone <URL_DEL_REPOSITORIO_FRONTEND> frontend-consolas
+
+-cd frontend-consolas
+
+2️⃣ Instalar Dependencias del Proyecto
+bash
+-npm install
+Esto instalará todas las dependencias necesarias, incluyendo:
+
+vite
+
+vue
+
+vue-router
+
+vuetify
+
+typescript
+
+sass
+
+@mdi/font
+
+3️⃣ Instalar y Configurar Vuetify
+📦 Instalar Vuetify y sus dependencias
+bash
+
+-npm install vuetify@next sass @mdi/font
+🧩 Crear archivo de configuración vuetify.ts
+ts
+
+// src/vuetify.ts
+import 'vuetify/styles'
+import { createVuetify } from 'vuetify'
+import { aliases, mdi } from 'vuetify/iconsets/mdi'
+
+export default createVuetify({
+  icons: {
+    defaultSet: 'mdi',
+    aliases,
+    sets: { mdi },
+  },
+  theme: {
+    defaultTheme: 'light',
+  },
+})
+
+
+⚙️ Usar Vuetify en main.ts
+ts
+
+// src/main.ts
+import { createApp } from 'vue'
+import App from './App.vue'
+import router from './router'
+
+// Vuetify
+import vuetify from './vuetify'
+import '@mdi/font/css/materialdesignicons.css'
+import 'vuetify/styles'
+
+// Estilos globales
+import './assets/main.css'
+
+createApp(App).use(router).use(vuetify).mount('#app')
+4️⃣ Configurar la URL de la API
+Edita el archivo src/services/ConsoleService.ts y asegúrate de que la constante API_URL apunte correctamente a tu backend:
+
+ts
 
 // src/services/ConsoleService.ts
-const API_URL = 'http://localhost:3333/api/consoles'; // Asegúrate que esta sea la URL de tu backend
-Iniciar el Servidor de Desarrollo:
+const API_URL = 'http://localhost:3333/api/consoles';
+🧪 Ejecutar el Proyecto en Desarrollo
+bash
 
-Bash
+-npm run dev
+El proyecto se abrirá automáticamente en tu navegador, usualmente en:
 
-npm run dev
-El frontend se abrirá en tu navegador (normalmente http://localhost:5173 o un puerto similar).
+http://localhost:5173
+
+
+
+
+
+
+
+
+
+
+
