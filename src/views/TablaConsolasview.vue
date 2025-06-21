@@ -1,1066 +1,580 @@
+<template>
+  <v-container fluid class="py-5">
+    <v-card class="mb-5" outlined>
+      <v-card-title class="text-h5 text-center">Gestión de Consolas</v-card-title>
+      <v-card-text>
+        <v-alert
+          v-if="showFormAlert"
+          type="warning"
+          variant="tonal"
+          class="mb-4"
+          closable
+          v-model="showFormAlert"
+        >
+          {{ formAlertMessage }}
+        </v-alert>
+
+        <v-form ref="form" @submit.prevent="submitForm" class="form" style="color: black">
+          <v-row>
+            <v-col cols="12">
+              <v-text-field
+                label="Nombre de la Consola"
+                v-model="nombre"
+                required
+                outlined
+                clearable
+                :error-messages="validationErrors.name"
+                :rules="[rules.required, rules.minLength, rules.maxLength, validateNombreConsolaUnico]" />
+            </v-col>
+            <v-col cols="12">
+              <v-text-field
+                label="Fabricante"
+                v-model="fabricante"
+                outlined
+                required
+                clearable
+                :error-messages="validationErrors.manufacturer"
+                :rules="[rules.required, rules.minLength, rules.maxLength]"
+              />
+            </v-col>
+            <v-col cols="12">
+              <v-text-field
+                label="Número de Serie"
+                v-model="serialNumber"
+                outlined
+                required
+                counter
+                clearable
+                maxlength="255"
+                hint="Proporciona el número de serie único de la consola."
+                :error-messages="validationErrors.serialNumber"
+                :rules="[rules.required, rules.descriptionMaxLength, validateNumeroSerieUnico]"
+              />
+            </v-col>
+            <v-col cols="12" v-if="isEditing">
+              <v-select
+                label="Estado de la Consola"
+                v-model="is_active"
+                :items="[{ title: 'Activa', value: true }, { title: 'Inactiva', value: false }]"
+                outlined
+                required
+                :error-messages="validationErrors.is_active"
+                :rules="[rules.is_activeRequired]"
+              ></v-select>
+            </v-col>
+          </v-row>
+
+          <div class="d-flex justify-start">
+            <v-btn v-if="isEditing" color="secondary" @click="resetForm" class="mr-2">Cancelar Edición</v-btn>
+            <v-btn v-if="!isEditing" color="grey" text @click="resetForm" class="mr-2">Limpiar Formulario</v-btn>
+            <v-btn color="primary" type="submit">{{ isEditing ? 'Actualizar Consola' : 'Crear Consola' }}</v-btn>
+          </div>
+        </v-form>
+      </v-card-text>
+    </v-card>
+
+    <v-card outlined>
+      <v-card-title class="text-h6">Listado de Consolas</v-card-title>
+      <v-row align="center" class="px-4 pb-4">
+        <v-col cols="12" sm="6" md="4" lg="3">
+          <v-text-field v-model="search" label="Buscar consola" prepend-inner-icon="mdi-magnify" outlined dense hide-details />
+        </v-col>
+        <v-col cols="12" sm="6" md="4" lg="3">
+          <v-select
+            v-model="filtroEstadoTabla"
+            :items="[{ title: 'Activas', value: true }, { title: 'Inactivas', value: false }, { title: 'Todas', value: 'todos' }]"
+            label="Filtrar por Estado"
+            outlined
+            dense
+            hide-details
+          ></v-select>
+        </v-col>
+        <v-col cols="12" sm="6" md="4" lg="6" class="d-flex justify-start">
+          <v-btn-toggle v-model="sortBy[0].order" mandatory variant="elevated" color="primary">
+            <v-btn value="asc" class="pa-2">
+              <v-icon>mdi-sort-ascending</v-icon>
+            </v-btn>
+            <v-btn value="desc" class="pa-2">
+              <v-icon>mdi-sort-descending</v-icon>
+            </v-btn>
+          </v-btn-toggle>
+        </v-col>
+      </v-row>
+
+      <v-data-table
+        :headers="headers"
+        :items="filteredConsoles" item-value="id"
+        v-model:sort-by="sortBy"
+        class="elevation-1"
+      >
+        <template v-slot:item.name="{ item }">
+          <div class="d-flex align-center">
+            <v-icon :color="item.is_active ? 'primary' : 'grey'" class="mr-2">{{ getConsoleIcon(item.manufacturer) }}</v-icon>
+            <span>{{ item.name }}</span>
+          </div>
+        </template>
+
+        <template v-slot:item.is_active="{ item }">
+          <v-chip :color="item.is_active ? 'green' : 'red'" variant="flat" size="small">
+            {{ item.is_active ? 'Activa' : 'Inactiva' }}
+          </v-chip>
+        </template>
+
+        <template v-slot:item.actions="{ item }">
+          <v-btn icon @click="editConsole(item)" class="mr-1" :disabled="!item.is_active">
+            <v-icon color="primary">mdi-pencil</v-icon>
+          </v-btn>
+          <v-btn icon @click="handleSoftDeleteConsole(item.id)" v-if="item.is_active">
+            <v-icon color="red">mdi-delete</v-icon>
+          </v-btn>
+          <v-btn icon @click="handleActivateConsole(item.id)" v-else>
+            <v-icon color="success">mdi-check-circle</v-icon>
+          </v-btn>
+          <v-btn icon @click="handleHardDeleteConsole(item.id)" class="ml-1">
+            <v-icon color="grey darken-2">mdi-eraser</v-icon>
+          </v-btn>
+        </template>
+        <template v-slot:no-data>
+          <v-alert :value="true" color="info" icon="mdi-information">
+            No hay consolas disponibles.
+          </v-alert>
+        </template>
+      </v-data-table>
+    </v-card>
+
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+      {{ snackbar.message }}
+      <template #actions>
+        <v-btn text @click="snackbar.show = false">Cerrar</v-btn>
+      </template>
+    </v-snackbar>
+
+    <ConfirmDialog
+      v-model="showConfirmDialog"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      :confirm-text="confirmDialogConfirmText"
+      :confirm-color="confirmDialogConfirmColor"
+      @confirm="handleConfirmAction"
+      @cancel="handleCancelAction"
+    />
+  </v-container>
+</template>
+
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import ConsoleService from '../services/ConsoleService'; // Asegúrate que la ruta sea correcta
-import type { ConsoleData, PaginatedResponse, CreateConsolePayload, UpdateConsolePayload } from '../services/ConsoleService'; 
+import ConsoleService, { ConsoleData, CreateConsolePayload, UpdateConsolePayload } from '../Services/ConsoleService';
+import ConfirmDialog from '../components/ConfirmarDialogo.vue';
 
-// --- Variables de estado ---
+// Para el formulario de Vuetify
+const form = ref<HTMLFormElement | null>(null);
+
+// Variables reactivas para los datos del formulario
 const consoles = ref<ConsoleData[]>([]);
-const isLoading = ref<boolean>(true);
-const hasError = ref<string | null>(null);
+const nombre = ref<string>('');
+const fabricante = ref<string>('');
+const serialNumber = ref<string>('');
+const is_active = ref<boolean>(true); // Coherente con ConsoleData
 
-const currentPage = ref<number>(1);
-const itemsPerPage = ref<number>(10);
-const totalItems = ref<number>(0);
-const totalPages = ref<number>(1);
-const includeInactive = ref<boolean>(false);
+// Variables de UI y estado
+const search = ref<string>('');
+const isEditing = ref<boolean>(false);
+const editingConsoleId = ref<string | null>(null); // CORREGIDO: ID ahora es string
 
-// Control de modales
-const isEditModalOpen = ref<boolean>(false);
-const isDetailsModalOpen = ref<boolean>(false);
-const selectedConsole = ref<ConsoleData | null>(null);
+// Manejo de errores de validación y alertas
+const validationErrors = ref<Record<string, string[]>>({});
+const formAlertMessage = ref<string>('');
+const showFormAlert = ref<boolean>(false);
 
-// Formulario para CREAR una nueva consola (directamente en la parte superior de la vista)
-const newConsoleForm = ref<CreateConsolePayload>({
-  name: '',
-  manufacturer: '',
-  serialNumber: '',
+// Snackbar para notificaciones
+const snackbar = ref({
+  show: false,
+  message: '',
+  color: 'success',
 });
 
-// Formulario para EDITAR una consola (en un modal)
-const editConsoleForm = ref<Partial<ConsoleData>>({
-  name: '',
-  manufacturer: '',
-  serialNumber: '',
-  is_active: true, // Por defecto, una consola a editar es activa
-});
+// Diálogo de confirmación
+const showConfirmDialog = ref<boolean>(false);
+const confirmDialogTitle = ref<string>('');
+const confirmDialogMessage = ref<string>('');
+const confirmDialogConfirmText = ref<string>('');
+const confirmDialogConfirmColor = ref<string>('');
+const currentAction = ref<string>(''); // 'create', 'update', 'soft_delete', 'activate', 'hard_delete'
+const consoleToSoftDeleteId = ref<string | null>(null); // CORREGIDO: ID ahora es string
+const consoleToActivateId = ref<string | null>(null); // CORREGIDO: ID ahora es string
+const consoleToHardDeleteId = ref<string | null>(null); // CORREGIDO: ID ahora es string
+
+// Configuración de ordenamiento de la tabla
+type MySortItem = {
+  key: string;
+  order: boolean | 'asc' | 'desc' | undefined;
+};
+const sortBy = ref<MySortItem[]>([{ key: 'id', order: 'asc' }]);
+
+// Filtro de estado para la tabla
+const filtroEstadoTabla = ref<'todos' | boolean>('todos');
+
+// Definición de los encabezados de la tabla
+const headers = [
+  { title: 'ID', key: 'id', sortable: false },
+  { title: 'Nombre', key: 'name', sortable: false },
+  { title: 'Fabricante', key: 'manufacturer', sortable: false },
+  { title: 'Número de Serie', key: 'serialNumber', sortable: false },
+  { title: 'Estado', key: 'is_active', sortable: false }, // Coherente con ConsoleData
+  { title: 'Acciones', key: 'actions', sortable: false },
+];
+
+// REGLAS DE VALIDACIÓN FRONEND con Vuetify
+const rules = {
+  required: (value: string) => !!value || 'Este campo es requerido.',
+  minLength: (v: string) => (v && v.length >= 3) || 'Mínimo 3 caracteres.',
+  maxLength: (v: string) => (v && v.length <= 50) || 'Máximo 50 caracteres para el nombre.',
+  descriptionMaxLength: (v: string) => (v && v.length <= 255) || 'Máximo 255 caracteres.',
+  is_activeRequired: (value: boolean | null | undefined) => value !== null && value !== undefined || 'El estado es requerido.' // Coherente con is_active
+};
+
+// --- Mapeo de fabricantes a iconos de Material Design Icons ---
+const consoleIcons: Record<string, string> = {
+  'Sony': 'mdi-sony-playstation',
+  'Microsoft': 'mdi-microsoft-xbox',
+  'Nintendo': 'mdi-nintendo-switch',
+  'Valve': 'mdi-steam',
+  'Sega': 'mdi-controller',
+  'Atari': 'mdi-gamepad-variant',
+  'Default': 'mdi-gamepad',
+};
+
+function getConsoleIcon(manufacturer: string): string {
+  return consoleIcons[manufacturer] || consoleIcons['Default'];
+}
+// --- FIN Mapeo de iconos ---
 
 
-// --- Propiedades computadas ---
-const canGoToPreviousPage = computed(() => currentPage.value > 1);
-const canGoToNextPage = computed(() => currentPage.value < totalPages.value);
-const hasConsoles = computed(() => consoles.value.length > 0);
+// --- FUNCIONES DE VALIDACIÓN ASÍNCRONAS PARA EL NOMBRE Y NÚMERO DE SERIE DE LA CONSOLA ---
+async function validateNombreConsolaUnico(value: string): Promise<boolean | string> {
+  if (!value) return true; 
 
-// Validez del formulario de CREACIÓN
-const isNewFormValid = computed(() => {
-  return !!newConsoleForm.value.name && !!newConsoleForm.value.manufacturer && !!newConsoleForm.value.serialNumber;
-});
-
-// Validez del formulario de EDICIÓN
-const isEditFormValid = computed(() => {
-  return !!editConsoleForm.value.name && !!editConsoleForm.value.manufacturer && !!editConsoleForm.value.serialNumber;
-});
-
-// Propiedad computada para generar el rango de páginas a mostrar
-const pagesToShow = computed(() => {
-  const pages: number[] = [];
-  const maxPages = 5; // Número máximo de botones de página a mostrar (ej. 1 2 3 4 5)
-  let startPage: number, endPage: number;
-
-  if (totalPages.value <= maxPages) {
-    // Si hay menos páginas que el máximo a mostrar, mostrar todas
-    startPage = 1;
-    endPage = totalPages.value;
-  } else {
-    // Calcular el inicio y fin para centrar la página actual
-    startPage = Math.max(1, currentPage.value - Math.floor(maxPages / 2));
-    endPage = Math.min(totalPages.value, startPage + maxPages - 1);
-
-    // Ajustar si el rango no cubre el `maxPages` completo
-    if (endPage - startPage + 1 < maxPages) {
-      if (startPage === 1) { // Si estamos al principio, extender el final
-        endPage = Math.min(totalPages.value, maxPages);
-      } else if (endPage === totalPages.value) { // Si estamos al final, extender el inicio
-        startPage = Math.max(1, totalPages.value - maxPages + 1);
-      }
+  if (isEditing.value && editingConsoleId.value !== null) {
+    const originalConsole = consoles.value.find(c => c.id === editingConsoleId.value); // Ya no se necesita toString()
+    if (originalConsole && originalConsole.name.toLowerCase() === value.toLowerCase()) {
+      return true;
     }
   }
+  return true; 
+}
 
-  // --- DEBUGGING: console.log para ver las páginas que se generarán ---
-  // console.log(`[pagesToShow] currentPage: ${currentPage.value}, totalPages: ${totalPages.value}, startPage: ${startPage}, endPage: ${endPage}`);
-  // console.log(`[pagesToShow] pages generadas: ${pages}`);
+async function validateNumeroSerieUnico(value: string): Promise<boolean | string> {
+  if (!value) return true;
 
-  for (let i = startPage; i <= endPage; i++) {
-    pages.push(i);
+  if (isEditing.value && editingConsoleId.value !== null) {
+    const originalConsole = consoles.value.find(c => c.id === editingConsoleId.value); // Ya no se necesita toString()
+    if (originalConsole && originalConsole.serialNumber === value) {
+      return true;
+    }
   }
-  return pages;
-});
+  return true; 
+}
+// --- FIN FUNCIONES DE VALIDACIÓN ASÍNCRONA ---
 
-
-// --- Funciones de Fetching y Paginación ---
-async function fetchConsoles(): Promise<void> {
-  isLoading.value = true;
-  hasError.value = null;
-  consoles.value = [];
-
+// Carga de consolas desde el servicio
+async function cargarConsolas() {
   try {
-    const response: PaginatedResponse<ConsoleData> = await ConsoleService.getConsoles(
-      currentPage.value,
-      itemsPerPage.value,
-      includeInactive.value
-    );
+    console.log('Cargando consolas...');
+    const response = await ConsoleService.getConsoles(1, 100, true);
     consoles.value = response.consoles;
-    totalItems.value = response.meta.total;
-    totalPages.value = response.meta.last_page;
-
-    // --- DEBUGGING: console.log para verificar la respuesta de la API y los valores actualizados ---
-    console.log('--- fetchConsoles: Datos recibidos y actualizados ---');
-    console.log('Respuesta completa de la API:', response);
-    console.log('consoles.length:', consoles.value.length);
-    console.log('totalItems.value (desde meta.total):', totalItems.value);
-    console.log('totalPages.value (desde meta.last_page):', totalPages.value);
-    console.log('currentPage.value (después de fetch):', currentPage.value);
-    console.log('canGoToPreviousPage.value:', canGoToPreviousPage.value);
-    console.log('canGoToNextPage.value:', canGoToNextPage.value);
-    console.log('pagesToShow.value (calculado):', pagesToShow.value);
-    console.log('----------------------------------------------------');
-
-  } catch (err: any) {
-    hasError.value = err.message || 'Error desconocido al cargar consolas.';
-    console.error('Error al obtener consolas:', err);
-    // --- DEBUGGING: console.log para errores ---
-    console.log('Error en fetchConsoles:', err);
-  } finally {
-    isLoading.value = false;
+    console.log('Consolas cargadas exitosamente:', consoles.value);
+  } catch (error: any) {
+    console.error('Error al cargar consolas:', error);
+    snackbar.value = { show: true, message: 'Error al cargar consolas.', color: 'error' };
   }
 }
 
-function goToPage(pageNumber: number): void {
-  // --- DEBUGGING: console.log al intentar ir a una página ---
-  console.log(`Intentando ir a la página: ${pageNumber}`);
-  console.log(`Condiciones: pageNumber >= 1 (${pageNumber >= 1}), pageNumber <= totalPages.value (${pageNumber <= totalPages.value}), pageNumber !== currentPage.value (${pageNumber !== currentPage.value})`);
+// Envío del formulario (crear o actualizar)
+async function submitForm() {
+  validationErrors.value = {};
+  snackbar.value.show = false;
+  formAlertMessage.value = '';
+  showFormAlert.value = false;
 
-  if (pageNumber >= 1 && pageNumber <= totalPages.value && pageNumber !== currentPage.value) {
-    currentPage.value = pageNumber;
-    fetchConsoles();
-    // --- DEBUGGING: console.log después de cambiar la página ---
-    console.log(`currentPage.value cambiado a: ${currentPage.value}`);
+  if (!form.value) return;
+  const { valid } = await form.value.validate();
+
+  if (!valid) {
+    snackbar.value = { show: true, message: 'Por favor, corrige los errores del formulario antes de continuar.', color: 'warning' };
+    return;
+  }
+
+  if (isEditing.value) {
+    confirmDialogTitle.value = 'Confirmar Actualización de Consola';
+    confirmDialogMessage.value = '¿Estás seguro de que quieres actualizar esta consola?';
+    confirmDialogConfirmText.value = 'Actualizar';
+    confirmDialogConfirmColor.value = 'primary';
+    currentAction.value = 'update';
   } else {
-    console.log('No se pudo cambiar de página: Las condiciones no se cumplen.');
+    confirmDialogTitle.value = 'Confirmar Creación de Consola';
+    confirmDialogMessage.value = '¿Estás seguro de que quieres crear esta consola?';
+    confirmDialogConfirmText.value = 'Crear';
+    confirmDialogConfirmColor.value = 'success';
+    currentAction.value = 'create';
   }
+  showConfirmDialog.value = true;
 }
 
-// --- Funciones de Modales (para Editar y Ver Detalles) ---
-function openEditModal(consoleItem: ConsoleData): void {
-  selectedConsole.value = consoleItem;
-  // Pre-rellena el formulario de edición con los datos de la consola seleccionada
-  editConsoleForm.value = { 
-    id: consoleItem.id, // Asegurarse de mantener el ID para la actualización
-    name: consoleItem.name,
-    manufacturer: consoleItem.manufacturer,
-    serialNumber: consoleItem.serialNumber,
-    is_active: consoleItem.is_active 
-  };
-  isEditModalOpen.value = true;
-}
-
-function openDetailsModal(consoleItem: ConsoleData): void {
-  selectedConsole.value = consoleItem;
-  isDetailsModalOpen.value = true;
-}
-
-function closeModal(): void {
-  isEditModalOpen.value = false;
-  isDetailsModalOpen.value = false;
-  selectedConsole.value = null;
-  // Limpiar el formulario de edición. No limpiar newConsoleForm aquí.
-  editConsoleForm.value = { name: '', manufacturer: '', serialNumber: '', is_active: true }; 
-  fetchConsoles(); // Refrescar la tabla después de cerrar un modal para reflejar cambios
-}
-
-// --- Funciones de Acción (CRUD) ---
-async function handleCreateConsole(): Promise<void> {
-  if (!isNewFormValid.value) {
-    alert('Por favor, rellena todos los campos obligatorios (Nombre, Fabricante, Número de Serie) para crear una consola.');
-    return;
-  }
+// Maneja la acción confirmada desde el diálogo
+async function handleConfirmAction() {
+  snackbar.value.show = false;
+  validationErrors.value = {};
+  formAlertMessage.value = '';
+  showFormAlert.value = false;
 
   try {
-    isLoading.value = true;
-    await ConsoleService.createConsole(newConsoleForm.value); // Ya es del tipo correcto CreateConsolePayload
-    alert('Consola creada exitosamente.');
-    // Limpia el formulario después de crear
-    newConsoleForm.value = { name: '', manufacturer: '', serialNumber: '' };
-    currentPage.value = 1; // Volver a la primera página para ver la nueva consola
-    fetchConsoles(); // Refresca la tabla para mostrar la nueva consola
+    const consoleData: CreateConsolePayload | UpdateConsolePayload = {
+      name: nombre.value,
+      manufacturer: fabricante.value,
+      serialNumber: serialNumber.value,
+    };
+
+    if (currentAction.value === 'create') {
+      console.log('Intentando crear consola con datos:', consoleData);
+      await ConsoleService.createConsole(consoleData as CreateConsolePayload);
+      snackbar.value = { show: true, message: 'Consola creada exitosamente.', color: 'success' };
+    } else if (currentAction.value === 'update') {
+      if (editingConsoleId.value === null) throw new Error('ID de consola no definido para actualizar.');
+      
+      (consoleData as UpdateConsolePayload).is_active = is_active.value;
+      
+      console.log('Intentando actualizar consola ID:', editingConsoleId.value, 'con datos:', consoleData);
+      await ConsoleService.updateConsole(editingConsoleId.value, consoleData as UpdateConsolePayload); // ID ya es string
+      snackbar.value = { show: true, message: 'Consola actualizada correctamente.', color: 'success' };
+    } else if (currentAction.value === 'soft_delete') {
+      if (consoleToSoftDeleteId.value !== null) {
+        console.log('Intentando inactivar consola ID:', consoleToSoftDeleteId.value);
+        await ConsoleService.deactivateConsole(consoleToSoftDeleteId.value); // ID ya es string
+        snackbar.value = { show: true, message: 'Consola inactivada correctamente.', color: 'success' };
+        console.log('Soft delete exitoso para ID:', consoleToSoftDeleteId.value);
+      }
+    } else if (currentAction.value === 'activate') {
+      if (consoleToActivateId.value !== null) {
+        console.log('Intentando activar consola ID:', consoleToActivateId.value);
+        await ConsoleService.activateConsole(consoleToActivateId.value); // ID ya es string
+        snackbar.value = { show: true, message: 'Consola activada correctamente.', color: 'success' };
+        console.log('Activación exitosa para ID:', consoleToActivateId.value);
+      }
+    } else if (currentAction.value === 'hard_delete') {
+      if (consoleToHardDeleteId.value !== null) {
+        console.log('Intentando eliminar permanentemente consola ID:', consoleToHardDeleteId.value);
+        await ConsoleService.deleteConsolePermanently(consoleToHardDeleteId.value); // ID ya es string
+        snackbar.value = { show: true, message: 'Consola eliminada definitivamente.', color: 'success' };
+        console.log('Eliminación permanente exitosa para ID:', consoleToHardDeleteId.value);
+      }
+    }
+
+    await cargarConsolas();
+    console.log('Lista de consolas recargada después de la acción. Consolas:', consoles.value);
+    resetForm();
+
   } catch (err: any) {
-    alert(`Error al crear la consola: ${err.message}`);
-    console.error('Error al crear consola:', err);
+    console.error('Error en handleConfirmAction:', err);
+    const errorMessage = err.data?.message || err.message || 'Error al procesar la operación de la consola. Intenta de nuevo más tarde.';
+    snackbar.value = { show: true, message: errorMessage, color: 'error' };
+
+    if (err.status === 409 && errorMessage.includes('El número de serie ya existe.')) {
+      formAlertMessage.value = 'El número de serie ingresado ya está en uso. Por favor, elige uno diferente.';
+      showFormAlert.value = true;
+    }
   } finally {
-    isLoading.value = false;
+    showConfirmDialog.value = false;
+    currentAction.value = '';
+    consoleToSoftDeleteId.value = null;
+    consoleToActivateId.value = null;
+    consoleToHardDeleteId.value = null;
   }
 }
 
-async function handleUpdateConsole(): Promise<void> {
-  if (!selectedConsole.value?.id || !isEditFormValid.value) { // Asegurarse de que el ID exista
-    alert('Error: Consola no seleccionada o campos incompletos.');
-    return;
+// Edita una consola
+function editConsole(consoleItem: ConsoleData) {
+  isEditing.value = true;
+  editingConsoleId.value = consoleItem.id; // Asignación directa, ya es string
+  nombre.value = consoleItem.name;
+  fabricante.value = consoleItem.manufacturer;
+  serialNumber.value = consoleItem.serialNumber;
+  is_active.value = consoleItem.is_active;
+  resetValidation();
+  window.scrollTo({ top: 0, behavior: 'smooth'});
+  console.log('Editando consola:', consoleItem);
+}
+
+// Maneja el soft delete
+function handleSoftDeleteConsole(id: string) { // CORREGIDO: id es string
+  consoleToSoftDeleteId.value = id;
+  confirmDialogTitle.value = 'Confirmar Inactivación de Consola';
+  confirmDialogMessage.value = '¿Estás seguro de que quieres inactivar esta consola? Se cambiará su estado a inactivo.';
+  confirmDialogConfirmText.value = 'Inactivar';
+  confirmDialogConfirmColor.value = 'error';
+  currentAction.value = 'soft_delete';
+  showConfirmDialog.value = true;
+  console.log('Solicitud de soft delete para ID:', id);
+}
+
+// Maneja la activación de una consola
+function handleActivateConsole(id: string) { // CORREGIDO: id es string
+  consoleToActivateId.value = id;
+  confirmDialogTitle.value = 'Confirmar Activación de Consola';
+  confirmDialogMessage.value = '¿Estás seguro de que quieres activar esta consola? Se cambiará su estado a activo.';
+  confirmDialogConfirmText.value = 'Activar';
+  confirmDialogConfirmColor.value = 'success';
+  currentAction.value = 'activate';
+  showConfirmDialog.value = true;
+  console.log('Solicitud de activación para ID:', id);
+}
+
+// Maneja la eliminación permanente
+function handleHardDeleteConsole(id: string) { // CORREGIDO: id es string
+  consoleToHardDeleteId.value = id;
+  confirmDialogTitle.value = '¡ADVERTENCIA! Eliminación Permanente de Consola';
+  confirmDialogMessage.value = 'Esta acción eliminará la consola de forma definitiva de la base de datos y no se podrá recuperar. ¿Estás absolutamente seguro?';
+  confirmDialogConfirmText.value = 'Eliminar PERMANENTEMENTE';
+  confirmDialogConfirmColor.value = 'red darken-3';
+  currentAction.value = 'hard_delete';
+  showConfirmDialog.value = true;
+  console.log('Solicitud de eliminación permanente para ID:', id);
+}
+
+// Cancela la acción del diálogo
+function handleCancelAction() {
+  console.log('Acción de consola cancelada por el usuario.');
+  resetForm();
+  showConfirmDialog.value = false;
+}
+
+// Resetea el formulario y el estado de la UI
+function resetForm() {
+  console.log('Reseteando formulario...');
+  nombre.value = '';
+  fabricante.value = '';
+  serialNumber.value = '';
+  is_active.value = true;
+  isEditing.value = false;
+  editingConsoleId.value = null;
+  consoleToSoftDeleteId.value = null;
+  consoleToActivateId.value = null;
+  consoleToHardDeleteId.value = null;
+  resetValidation();
+  snackbar.value.show = false;
+  formAlertMessage.value = '';
+  showFormAlert.value = false;
+}
+
+// Resetea las validaciones del formulario de Vuetify
+function resetValidation() {
+  validationErrors.value = {};
+  if (form.value) {
+    form.value.resetValidation();
+    console.log('Validaciones del formulario reseteadas.');
   }
+}
+
+// Filtrado y ordenamiento de la tabla
+const filteredConsoles = computed(() => {
+  let filteredList = consoles.value;
+  console.log('Recalculando filteredConsoles. Consolas originales (antes de búsqueda/filtro):', consoles.value.length);
   
-  try {
-    isLoading.value = true;
-    // Solo envía los campos que se pueden actualizar.
-    // TypeScript ya valida que editConsoleForm es Partial<ConsoleData>, que es compatible con UpdateConsolePayload.
-    await ConsoleService.updateConsole(selectedConsole.value.id, editConsoleForm.value);
-    alert(`Consola "${selectedConsole.value.name}" actualizada exitosamente.`);
-    closeModal(); // Cierra el modal y refresca la tabla
-  } catch (err: any) {
-    alert(`Error al actualizar la consola: ${err.message}`);
-    console.error('Error al actualizar consola:', err);
-  } finally {
-    isLoading.value = false;
+  // Búsqueda
+  if (search.value) {
+    const searchTerm = search.value.trim().toLowerCase();
+    filteredList = filteredList.filter(c =>
+      c.name.toLowerCase().includes(searchTerm) ||
+      c.manufacturer.toLowerCase().includes(searchTerm) ||
+      c.serialNumber.toLowerCase().includes(searchTerm)
+    );
+    console.log('Después de búsqueda:', filteredList.length);
   }
-}
 
-async function handleDeactivate(consoleItem: ConsoleData): Promise<void> {
-  if (!confirm(`¿Estás seguro de que quieres inactivar la consola "${consoleItem.name}"?`)) {
-    return;
+  // Filtrado por estado
+  if (filtroEstadoTabla.value !== 'todos') {
+    filteredList = filteredList.filter(c => c.is_active === filtroEstadoTabla.value);
+    console.log('Después de filtro por estado:', filteredList.length, 'Estado:', filtroEstadoTabla.value);
   }
-  try {
-    isLoading.value = true;
-    // Pasa el ID directamente, ya que el servicio lo espera
-    await ConsoleService.deactivateConsole(consoleItem.id!); // El '!' asume que id no será null
-    alert(`Consola "${consoleItem.name}" inactivada exitosamente.`);
-    await fetchConsoles(); // Refresca la tabla para ver el cambio de estado
-  } catch (err: any) {
-    alert(`Error al inactivar la consola: ${err.message}`);
-    console.error('Error al inactivar consola:', err);
-  } finally {
-    isLoading.value = false;
-  }
-}
 
-// --- Watchers y OnMounted ---
-// Cada vez que cambie `includeInactive` o `itemsPerPage`, volvemos a la primera página y recargamos.
-watch([includeInactive, itemsPerPage], () => {
-  currentPage.value = 1;
-  fetchConsoles();
+  // Aplicar el ordenamiento
+  if (sortBy.value && sortBy.value.length > 0) {
+    const sortKey = sortBy.value[0].key;
+    const sortOrder = sortBy.value[0].order;
+
+    filteredList.sort((a, b) => {
+      let valA: any = (a as any)[sortKey];
+      let valB: any = (b as any)[sortKey];
+
+      if (valA === null || valA === undefined) valA = '';
+      if (valB === null || valB === undefined) valB = '';
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return sortOrder === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      } else {
+        return sortOrder === 'asc' ? (valA > valB ? 1 : -1) : (valB > valA ? 1 : -1);
+      }
+    });
+    console.log('Después de ordenamiento. Clave:', sortKey, 'Orden:', sortOrder);
+  }
+
+  return filteredList;
 });
 
-// Carga las consolas al montar el componente
+// Observar cambios en el filtro de estado para forzar una re-renderización del computed (aunque ya debería ser reactivo)
+watch(filtroEstadoTabla, (newValue, oldValue) => {
+  console.log('filtroEstadoTabla cambió de', oldValue, 'a', newValue);
+});
+
+
+// Ordenar por ID descendente al cargar
+const sortByIdDesc = () => {
+  sortBy.value = [{ key: 'id', order: 'desc' }];
+};
+
+// Cargar consolas al montar el componente
 onMounted(() => {
-  fetchConsoles();
+  cargarConsolas();
+  sortByIdDesc();
 });
 </script>
 
-<template>
-  <div class="dashboard-container">
-    <header class="dashboard-header">
-      <h1>Gestión de Consolas</h1>
-    </header>
-
-    <div class="creation-form-section">
-      <h2>Crear Nueva Consola</h2>
-      <form @submit.prevent="handleCreateConsole" class="create-console-form">
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="new-name">Nombre:</label>
-            <input type="text" id="new-name" v-model="newConsoleForm.name" required />
-          </div>
-          <div class="form-group">
-            <label for="new-manufacturer">Fabricante:</label>
-            <input type="text" id="new-manufacturer" v-model="newConsoleForm.manufacturer" required />
-          </div>
-          <div class="form-group">
-            <label for="new-serialNumber">Número de Serie:</label>
-            <input type="text" id="new-serialNumber" v-model="newConsoleForm.serialNumber" required />
-          </div>
-          <div class="form-action-group">
-            <button type="submit" class="btn btn-create-inline" :disabled="!isNewFormValid">
-              <i class="icon-plus"></i> Crear Consola
-            </button>
-          </div>
-        </div>
-      </form>
-    </div>
-
-    <div class="filters-bar">
-      <label class="filter-checkbox">
-        <input type="checkbox" v-model="includeInactive" />
-        Mostrar Consolas Inactivas
-      </label>
-      <div class="pagination-limit-select">
-        <label for="items-per-page">Mostrar:</label>
-        <select id="items-per-page" v-model.number="itemsPerPage">
-          <option :value="5">5</option>
-          <option :value="10">10</option>
-          <option :value="20">20</option>
-          <option :value="50">50</option>
-        </select>
-        <span>items</span>
-      </div>
-    </div>
-
-    <div v-if="isLoading" class="status-message loading">
-      <div class="spinner"></div>
-      <p>Cargando consolas, por favor espera...</p>
-    </div>
-
-    <div v-else-if="hasError" class="status-message error">
-      <p><strong>¡Error al cargar las consolas!</strong></p>
-      <p>{{ hasError }}</p>
-      <button class="btn btn-retry" @click="fetchConsoles()">Reintentar Carga</button>
-    </div>
-
-    <div v-else-if="!hasConsoles" class="status-message no-data">
-      <p>No se encontraron consolas.</p>
-    </div>
-
-    <div v-else class="table-section">
-      <div class="table-responsive">
-        <table class="consoles-table">
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Fabricante</th>
-              <th>Número de Serie</th>
-              <th>Estado</th>
-              <th>Fecha Creación</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="consoleItem in consoles" :key="consoleItem.id">
-              <td>{{ consoleItem.name }}</td>
-              <td>{{ consoleItem.manufacturer }}</td>
-              <td>{{ consoleItem.serialNumber }}</td>
-              <td>
-                <span :class="['status-badge', { 'is-active': consoleItem.is_active, 'is-inactive': !consoleItem.is_active }]">
-                  {{ consoleItem.is_active ? 'Activa' : 'Inactiva' }}
-                </span>
-              </td>
-              <td>{{ consoleItem.createdAt ? new Date(consoleItem.createdAt).toLocaleDateString('es-CO') : 'N/A' }}</td> 
-              <td class="actions-cell">
-                <button class="btn btn-action view" @click="openDetailsModal(consoleItem)">Ver</button>
-                <button class="btn btn-action edit" @click="openEditModal(consoleItem)">Editar</button>
-                <button
-                  v-if="consoleItem.is_active"
-                  class="btn btn-action deactivate"
-                  @click="handleDeactivate(consoleItem)"
-                >
-                  Inactivar
-                </button>
-                </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="pagination-footer">
-        <span class="pagination-summary">
-          Mostrando {{ consoles.length }} de {{ totalItems }} consolas
-          (Página {{ currentPage }} de {{ totalPages }})
-        </span>
-        <div class="pagination-controls">
-          <button
-            class="btn btn-pagination"
-            @click="goToPage(1)"
-            :disabled="currentPage === 1"
-          >
-            Primera
-          </button>
-          <button
-            class="btn btn-pagination"
-            @click="goToPage(currentPage - 1)"
-            :disabled="!canGoToPreviousPage"
-          >
-            Anterior
-          </button>
-          
-          <template v-for="page in pagesToShow" :key="page">
-            <button
-              class="btn btn-pagination page-number"
-              @click="goToPage(page)"
-              :class="{ 'active-page': page === currentPage }"
-            >
-              {{ page }}
-            </button>
-          </template>
-
-          <button
-            class="btn btn-pagination"
-            @click="goToPage(currentPage + 1)"
-            :disabled="!canGoToNextPage"
-          >
-            Siguiente
-          </button>
-          <button
-            class="btn btn-pagination"
-            @click="goToPage(totalPages)"
-            :disabled="currentPage === totalPages"
-          >
-            Última
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="isEditModalOpen && selectedConsole" class="modal-overlay">
-      <div class="modal-content">
-        <h2>Editar Consola: {{ selectedConsole.name }}</h2>
-        <form @submit.prevent="handleUpdateConsole">
-          <div class="form-group">
-            <label for="edit-name">Nombre:</label>
-            <input type="text" id="edit-name" v-model="editConsoleForm.name" required />
-          </div>
-          <div class="form-group">
-            <label for="edit-manufacturer">Fabricante:</label>
-            <input type="text" id="edit-manufacturer" v-model="editConsoleForm.manufacturer" required />
-          </div>
-          <div class="form-group">
-            <label for="edit-serialNumber">Número de Serie:</label>
-            <input type="text" id="edit-serialNumber" v-model="editConsoleForm.serialNumber" required />
-          </div>
-          <div class="form-group">
-            <label for="edit-status">Estado:</label>
-            <select id="edit-status" v-model="editConsoleForm.is_active">
-              <option :value="true">Activa</option>
-              <option :value="false">Inactiva</option>
-            </select>
-          </div>
-          <div class="modal-actions">
-            <button type="submit" class="btn btn-primary" :disabled="!isEditFormValid">Actualizar</button>
-            <button type="button" class="btn btn-secondary" @click="closeModal">Cancelar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <div v-if="isDetailsModalOpen && selectedConsole" class="modal-overlay">
-      <div class="modal-content">
-        <h2>Detalles de Consola: {{ selectedConsole.name }}</h2>
-        <div class="details-group">
-          <strong>ID:</strong> <span>{{ selectedConsole.id }}</span>
-        </div>
-        <div class="details-group">
-          <strong>Nombre:</strong> <span>{{ selectedConsole.name }}</span>
-        </div>
-        <div class="details-group">
-          <strong>Fabricante:</strong> <span>{{ selectedConsole.manufacturer }}</span>
-        </div>
-        <div class="details-group">
-          <strong>Número de Serie:</strong> <span>{{ selectedConsole.serialNumber }}</span>
-        </div>
-        <div class="details-group">
-          <strong>Estado:</strong> 
-          <span :class="['status-badge', { 'is-active': selectedConsole.is_active, 'is-inactive': !selectedConsole.is_active }]">
-            {{ selectedConsole.is_active ? 'Activa' : 'Inactiva' }}
-          </span>
-        </div>
-        <div class="details-group">
-          <strong>Creada en:</strong> <span>{{ selectedConsole.createdAt ? new Date(selectedConsole.createdAt).toLocaleString('es-CO') : 'N/A' }}</span>
-        </div>
-        <div class="details-group">
-          <strong>Actualizada en:</strong> <span>{{ selectedConsole.updatedAt ? new Date(selectedConsole.updatedAt).toLocaleString('es-CO') : 'N/A' }}</span>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-secondary" @click="closeModal">Cerrar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
-
 <style scoped>
-/* Variables de color (Puedes mantenerlas en un archivo de variables global si usas un preprocesador) */
-:root {
-  --primary-color: #007bff;
-  --primary-hover-color: #0056b3;
-  --success-color: #28a745;
-  --success-hover-color: #218838;
-  --danger-color: #dc3545; 
-  --danger-hover-color: #c82333; 
-  --info-color: #17a2b8;
-  --info-hover-color: #138496;
-  --secondary-color: #6c757d;
-  --secondary-hover-color: #5a6268;
-  --light-bg: #f8f9fa;
-  --dark-text: #343a40;
-  --border-color: #dee2e6;
-  --card-bg: #ffffff;
-  --shadow-light: rgba(0, 0, 0, 0.1);
-
-  /* Colores para los botones de acción */
-  --action-view-background-color: var(--info-color); /* Azul claro */
-  --action-view-hover-background-color: var(--info-hover-color);
-  --action-edit-background-color: var(--primary-color); /* Azul */
-  --action-edit-hover-background-color: var(--primary-hover-color);
-  --action-deactivate-background-color: var(--danger-color); /* Rojo */
-  --action-deactivate-hover-background-color: var(--danger-hover-color);
-  --action-activate-background-color: var(--success-color); /* Verde */
-  --action-activate-hover-background-color: var(--success-hover-color);
-
-  --action-button-text-color: white; /* Color de letra blanco para visibilidad */
+/* Estilos existentes de tu componente de roles, adaptados o mantenidos */
+.form {
+  padding: 1rem;
 }
-
-/* Base del contenedor */
-.dashboard-container {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  max-width: 1200px;
-  margin: 30px auto;
-  padding: 25px;
-  background-color: var(--light-bg);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px var(--shadow-light);
-  color: var(--dark-text);
-}
-
-/* Encabezado */
-.dashboard-header {
-  display: flex;
-  justify-content: center; /* Centrado */
-  align-items: center;
-  margin-bottom: 30px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid var(--border-color);
-}
-
-.dashboard-header h1 {
-  margin: 0;
-  font-size: 2.2em;
-  color: var(--dark-text);
-  font-weight: 600;
-  text-align: center;
-}
-
-/* Sección de Creación de Consola (Nuevo) */
-.creation-form-section {
-  background-color: var(--card-bg);
-  padding: 25px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  margin-bottom: 30px;
-}
-
-.creation-form-section h2 {
-  margin-top: 0;
-  margin-bottom: 20px;
-  font-size: 1.6em;
-  color: var(--dark-text);
-  text-align: center;
-}
-
-.create-console-form {
-  display: flex;
-  flex-direction: column; /* Por defecto apilado */
-  gap: 15px; /* Espacio entre grupos */
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); /* 3 columnas en pantallas grandes */
-  gap: 20px;
-  align-items: end; /* Alinea los botones al final */
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-}
-
-.form-group label {
-  margin-bottom: 8px;
-  font-weight: 600;
-  color: #555;
-  font-size: 0.95em;
-}
-
-.form-group input[type="text"] {
-  padding: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  font-size: 1em;
-  box-sizing: border-box;
-}
-
-.form-group input[type="text"]:focus {
-  border-color: var(--primary-color);
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
-}
-
-.form-action-group {
-  display: flex;
-  justify-content: flex-end; /* Alinea el botón a la derecha */
-  align-items: flex-end; /* Asegura que se alinee con los labels de los inputs */
-  padding-top: 10px; /* Para alinear con los labels de los inputs */
-}
-
-.btn-create-inline {
-  background-color: var(--success-color); /* Verde para crear */
-  color: white;
-  padding: 12px 25px;
-  font-size: 1em;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 150px;
-  justify-content: center;
-}
-
-.btn-create-inline:hover {
-  background-color: var(--success-hover-color);
-}
-
-/* El resto de los estilos son iguales a los anteriores */
-
-/* Barra de filtros */
-.filters-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background-color: var(--card-bg);
-  padding: 15px 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  margin-bottom: 25px;
-}
-
-.filter-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.95em;
-  color: var(--dark-text);
-}
-
-.filter-checkbox input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--primary-color);
-}
-
-.pagination-limit-select {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.95em;
-  color: var(--dark-text);
-}
-
-.pagination-limit-select select {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
-  background-color: white;
-  font-size: 0.9em;
-  cursor: pointer;
-}
-
-/* Mensajes de estado (carga, error, sin datos) */
-.status-message {
-  padding: 25px;
-  text-align: center;
-  border-radius: 8px;
-  margin-bottom: 25px;
-  font-size: 1.1em;
-}
-
-.status-message.loading {
-  background-color: #e0f7fa;
-  color: #00796b;
-  border: 1px solid #b2ebf2;
-}
-
-.status-message.error {
-  background-color: #ffebee;
-  color: #d32f2f;
-  border: 1px solid #ef9a9a;
-}
-
-.status-message.no-data {
-  background-color: #fffde7;
-  color: #fbc02d;
-  border: 1px solid #fff59d;
-}
-
-.status-message .spinner {
-  border: 4px solid rgba(0, 0, 0, 0.1);
-  border-top: 4px solid var(--primary-color);
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 15px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.status-message .btn-retry {
-  background-color: var(--danger-color);
-  color: white;
-  margin-top: 15px;
-}
-.status-message .btn-retry:hover {
-  background-color: var(--danger-hover-color);
-}
-.status-message .btn-secondary {
-  background-color: var(--secondary-color);
-  color: white;
-  margin-top: 15px;
-}
-.status-message .btn-secondary:hover {
-  background-color: var(--secondary-hover-color);
-}
-
-/* Sección de la tabla */
-.table-section {
-  background-color: var(--card-bg);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-}
-
-.table-responsive {
-  overflow-x: auto;
-}
-
-.consoles-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.consoles-table th,
-.consoles-table td {
-  padding: 15px 20px;
-  text-align: left;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.consoles-table th {
-  background-color: var(--light-bg);
-  color: var(--dark-text);
-  font-weight: 600;
-  text-transform: uppercase;
+.error-message {
+  color: red;
   font-size: 0.85em;
+  margin-top: 5px;
 }
-
-.consoles-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.consoles-table tbody tr:hover {
-  background-color: #f2f7fd;
-}
-
-/* Badges de estado - Letra negra o blanca según el fondo */
-.status-badge {
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 0.75em;
-  font-weight: 700;
-  color: white; /* Color de letra por defecto para los badges */
-  display: inline-block;
-}
-
-.status-badge.is-active {
-  background-color: var(--success-color); /* Verde */
-}
-
-.status-badge.is-inactive {
-  background-color: var(--secondary-color); /* Gris */
-  /* Si el gris es muy claro y necesitas la letra negra, puedes sobrescribir: */
-  /* color: black; */ 
-}
-
-/* Celda de acciones */
-.actions-cell {
-  white-space: nowrap;
-}
-
-.btn {
-  padding: 8px 15px;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9em;
-  transition: background-color 0.2s ease, transform 0.1s ease;
-  min-width: 80px;
-  color: var(--action-button-text-color); /* Color de texto blanco para todos los botones de acción */
-}
-
-.btn:hover {
-  transform: translateY(-1px);
-}
-.btn:active {
-  transform: translateY(0);
-}
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* ESTILOS PARA LOS BOTONES DE ACCIÓN INDIVIDUALES */
-.btn-action {
-  margin-right: 8px; /* Espacio entre botones de acción */
-}
-
-.btn-action.view {
-  background-color: var(--action-view-background-color);
-}
-.btn-action.view:hover {
-  background-color: var(--action-view-hover-background-color);
-}
-
-.btn-action.edit {
-  background-color: var(--action-edit-background-color);
-}
-.btn-action.edit:hover {
-  background-color: var(--action-edit-hover-background-color);
-}
-
-.btn-action.deactivate {
-  background-color: var(--action-deactivate-background-color);
-}
-.btn-action.deactivate:hover {
-  background-color: var(--action-deactivate-hover-background-color);
-}
-
-.btn-action.reactivate { 
-  background-color: var(--action-activate-background-color);
-}
-.btn-action.reactivate:hover {
-  background-color: var(--action-activate-hover-background-color);
-}
-
-.btn-primary {
-  background-color: var(--primary-color);
-  color: white;
-}
-.btn-primary:hover {
-  background-color: var(--primary-hover-color);
-}
-.btn-secondary { /* Estilo para el botón de cancelar en modales */
-  background-color: var(--secondary-color);
-  color: white;
-}
-.btn-secondary:hover {
-  background-color: var(--secondary-hover-color);
-}
-
-/* Pie de paginación */
-.pagination-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px 20px;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--light-bg);
-  flex-wrap: wrap; /* Permite que los elementos se envuelvan */
-  gap: 15px; /* Espacio entre los elementos al envolver */
-}
-
-.pagination-summary {
-  font-size: 0.9em;
-  color: #555;
-}
-
-.pagination-controls {
-  display: flex;
-  align-items: center;
-  gap: 5px; /* Reducido para los números de página */
-  flex-wrap: wrap; /* Permite que los botones se envuelvan */
-  justify-content: center; /* Centra los botones cuando se envuelven */
-}
-
-.btn-pagination {
-  background-color: var(--primary-color);
-  color: white;
-  padding: 8px 15px;
-  border-radius: 5px;
-  font-size: 0.9em; /* Ajuste el tamaño para los botones de paginación */
-}
-
-.btn-pagination.page-number {
-  background-color: var(--secondary-color); /* Color diferente para los números */
-  color: white;
-}
-.btn-pagination.page-number:hover {
-  background-color: var(--secondary-hover-color);
-}
-
-.btn-pagination.active-page {
-  background-color: var(--primary-color); /* Resaltar la página activa */
-  color: white;
+.text-h5, .text-h6 {
+  color: #1976D2;
   font-weight: bold;
-  border: 1px solid var(--primary-hover-color);
 }
-
-
-.btn-pagination:disabled {
-  background-color: #cccccc;
-  cursor: not-allowed;
-  opacity: 0.7;
+.v-btn-toggle .v-btn {
+  min-width: 44px;
 }
-
-/* Removido el .page-indicator ya que cada número tendrá su propio botón */
-/* .page-indicator {
-  font-weight: 600;
-  padding: 0 8px;
-} */
-
-/* --- ESTILOS DE MODAL --- */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.6);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
+.v-data-table tbody tr {
+  height: 48px;
+  min-height: 48px;
 }
-
-.modal-content {
-  background-color: var(--card-bg);
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
-  width: 90%;
-  max-width: 500px;
-  animation: modal-fade-in 0.3s ease-out;
+.v-data-table tbody td {
+  padding: 8px 16px;
 }
-
-@keyframes modal-fade-in {
-  from { opacity: 0; transform: translateY(-20px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Nuevos estilos o adaptaciones específicas para consolas */
+.active {
+  color: green;
+  font-weight: bold;
 }
-
-.modal-content h2 {
-  margin-top: 0;
-  margin-bottom: 25px;
-  color: var(--dark-text);
-  font-size: 1.8em;
-  text-align: center;
+.inactive {
+  color: #888;
+  font-style: italic;
 }
-
-/* Formulario dentro del modal */
-.modal-content .form-group label {
-  font-size: 1em; /* Un poco más grande para los modales */
+.delete-btn {
+  background-color: #dc3545; /* Red standard */
 }
-.modal-content .form-group input[type="text"],
-.modal-content .form-group select {
-  padding: 10px; /* Ajuste el padding para los inputs del modal */
-}
-
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 15px;
-  margin-top: 30px;
-}
-
-.modal-actions .btn {
-  padding: 10px 20px;
-  font-size: 1em;
-}
-
-.details-group {
-  margin-bottom: 12px;
-  padding: 8px 0;
-  border-bottom: 1px dotted var(--border-color);
-}
-
-.details-group:last-child {
-  border-bottom: none;
-}
-
-.details-group strong {
-  display: inline-block;
-  min-width: 120px; /* Para alinear los valores */
-  color: var(--dark-text);
-}
-
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .dashboard-container {
-    margin: 15px;
-    padding: 15px;
-  }
-
-  .dashboard-header {
-    flex-direction: column;
-    align-items: center;
-    gap: 15px;
-  }
-  .dashboard-header h1 {
-    font-size: 1.8em;
-  }
-
-  .creation-form-section h2 {
-    font-size: 1.4em;
-  }
-  .form-grid {
-    grid-template-columns: 1fr; /* Una columna en pantallas pequeñas */
-  }
-  .form-action-group {
-    justify-content: center; /* Centra el botón en móviles */
-  }
-  .btn-create-inline {
-    width: 100%;
-  }
-
-  .filters-bar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
-  }
-
-  .consoles-table th,
-  .consoles-table td {
-    padding: 10px 12px;
-    font-size: 0.85em;
-  }
-
-  .actions-cell {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    justify-content: flex-start;
-  }
-  .btn-action {
-    margin-right: 0;
-    flex: 1 1 auto;
-    min-width: unset;
-  }
-
-  .pagination-footer {
-    flex-direction: column;
-    gap: 15px;
-    align-items: center;
-  }
-  .pagination-controls {
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .modal-content {
-    padding: 20px;
-  }
-  .modal-content h2 {
-    font-size: 1.5em;
-  }
-  .modal-actions {
-    flex-direction: column;
-    gap: 10px;
-  }
-  .modal-actions .btn {
-    width: 100%;
-  }
-}
-
-@media (max-width: 480px) {
-  .consoles-table th,
-  .consoles-table td {
-    padding: 8px;
-    font-size: 0.8em;
-  }
+.delete-btn:hover:not(:disabled) {
+  background-color: #c82333; /* Darker red on hover */
 }
 </style>

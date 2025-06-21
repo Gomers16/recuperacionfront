@@ -1,10 +1,15 @@
 @import './base.css';
 
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+  /* Elimina o comenta las siguientes líneas para que ocupe todo el ancho */
+  /* max-width: 1280px; */ /* <-- ELIMINA O COMENTA ESTA LÍNEA */
+  /* margin: 0 auto; */    /* <-- ELIMINA O COMENTA ESTA LÍNEA */
+  /* padding: 2rem; */     /* <-- PUEDES QUITAR ESTE PADDING SI NO LO QUIERES GLOBALMENTE */
   font-weight: normal;
+  
+  /* Puedes agregar esto si quieres asegurarte de que ocupa el 100% */
+  width: 100%; 
+  min-height: 100vh; /* Para que ocupe al menos la altura de la ventana */
 }
 
 a,
@@ -21,15 +26,27 @@ a,
   }
 }
 
+/* Modifica también la regla dentro del media query para asegurar que no haya grid o padding no deseado */
 @media (min-width: 1024px) {
   body {
     display: flex;
     place-items: center;
+    /* Considera si necesitas este display: flex y place-items: center para body, 
+       podría estar centrándote la app si no tienes un layout más complejo.
+       Si quieres que la app ocupe el 100% del body, a veces es mejor quitarlo. */
   }
 
   #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
+    /* Si tenías un grid aquí para un layout de dos columnas,
+       considera moverlo a un componente de layout de Vue si no quieres
+       que toda la app se vea como una cuadrícula de dos columnas en el escritorio.
+       Si solo quieres que ocupe todo el ancho, estas líneas también deben ir. */
+    /* display: grid; */
+    /* grid-template-columns: 1fr 1fr; */
+    /* padding: 0 2rem; */ /* <-- ELIMINA O COMENTA ESTA LÍNEA */
+    
+    width: 100%; /* Asegura que la regla específica para 1024px no la limite */
+    max-width: none; /* Asegura que no haya un max-width aquí tampoco */
+    padding: 0; /* Si quieres eliminar el padding en pantallas grandes */
   }
 }

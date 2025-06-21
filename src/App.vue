@@ -1,11 +1,15 @@
 <template>
-  <router-view />
+  <v-app>
+    <v-main>
+      <router-view />
+    </v-main>
+  </v-app>
 </template>
 
 <script setup>
-// No necesitas importar nada aquí
+// Nada que importar aquí si todo está bien configurado en main.ts
 </script>
 
 <style scoped>
-/* Si quieres estilos globales, puedes agregarlos aquí */
+/* Puedes agregar estilos globales o específicos aquí */
 </style>
