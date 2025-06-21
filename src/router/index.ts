@@ -1,8 +1,9 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
-import Tablaview from '@/views/Tablaview.vue'
+// Asegúrate de que el nombre del archivo y la extensión coincidan exactamente
+import TablaConsolasview from '@/views/TablaConsolasview.vue' 
 
 const routes: RouteRecordRaw[] = [
-  { path: '/', name: 'Tabla', component: Tablaview }
+  { path: '/', name: 'Tabla', component: TablaConsolasview }
 ]
 
 const router = createRouter({
